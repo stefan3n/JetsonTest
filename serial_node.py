@@ -1,41 +1,59 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
 import serial
 import threading
+import sys
+import termios
+import tty
 
-class SerialNode(Node):
+class KeyboardSerialNode(Node):
     def __init__(self):
-        super().__init__('serial_node')
-        self.ser = serial.Serial('/dev/ttyACM0', 115200, timeout=0.1)
+        super().__init__('keyboard_serial_node')
+        self.ser = serial.Serial('/dev/ttyUSB0', 9600, timeout=1)  
+        self.get_logger().info('Serial connected to Arduino.')
+        self.running = True
 
-        self.pub = self.create_publisher(String, 'arduino_response', 10)
-        self.sub = self.create_subscription(String, 'arduino_command', self.command_callback, 10)
+        # Thread pentru citirea de la tastatura
+        self.keyboard_thread = threading.Thread(target=self.read_keyboard)
+        self.keyboard_thread.start()
 
-        self.read_thread = threading.Thread(target=self.read_serial)
-        self.read_thread.daemon = True
-        self.read_thread.start()
+        # Thread pentru citirea de la Arduino
+        self.serial_thread = threading.Thread(target=self.read_serial)
+        self.serial_thread.start()
 
-    def command_callback(self, msg):
-        cmd = msg.data + '\n'
-        self.ser.write(cmd.encode('utf-8'))
-        self.get_logger().info(f'Sent to Arduino: {msg.data}')
+    def read_keyboard(self):
+        old_settings = termios.tcgetattr(sys.stdin)
+        tty.setcbreak(sys.stdin.fileno())
+        try:
+            while self.running:
+                key = sys.stdin.read(1)
+                if key == 'b':
+                    self.send_to_arduino('black\n')
+                elif key == 'w':
+                    self.send_to_arduino('white\n')
+                elif key == 'q':
+                    self.get_logger().info('Quit signal received.')
+                    self.running = False
+                    rclpy.shutdown()
+        finally:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+
+    def send_to_arduino(self, message):
+        self.ser.write(message.encode())
+        self.get_logger().info(f'Sent: {message.strip()}')
 
     def read_serial(self):
-        while rclpy.ok():
-            line = self.ser.readline().decode('utf-8').strip()
-            if line:
-                self.get_logger().info(f'Received from Arduino: {line}')
-                msg = String()
-                msg.data = line
-                self.pub.publish(msg)
+        while self.running:
+            if self.ser.in_waiting > 0:
+                response = self.ser.readline().decode().strip()
+                if response:
+                    self.get_logger().info(f'Received from Arduino: {response}')
 
 def main(args=None):
     rclpy.init(args=args)
-    node = SerialNode()
+    node = KeyboardSerialNode()
     rclpy.spin(node)
     node.destroy_node()
-    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()
