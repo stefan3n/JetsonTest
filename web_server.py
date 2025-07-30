@@ -11,12 +11,17 @@ app = Flask(__name__, static_folder='.')
 class ROS2Publisher(Node):
     def __init__(self):
         super().__init__('web_server_node')
-        self.publisher_ = self.create_publisher(String, 'aruino_command', 10)
+        self.publisher_ = self.create_publisher(String, 'arduino_command', 10)
 
     def publish(self, msg):
-        msg_obj = String()
-        msg_obj.data = msg
-        self.publisher_.publish(msg_obj)
+        print(f"[ROS2Publisher] Attempting to publish: {msg}")
+        try:
+            msg_obj = String()
+            msg_obj.data = msg
+            self.publisher_.publish(msg_obj)
+            print(f"[ROS2Publisher] Published: {msg}")
+        except Exception as e:
+            print(f"[ROS2Publisher] ERROR at publish: {e}")
 
 # Start rclpy and node in a background thread
 import threading
@@ -39,7 +44,11 @@ def static_files(path):
 
 @app.route('/command/<cmd>', methods=['POST'])
 def send_command(cmd):
-    ros2_node.publish(cmd)
+    print(f"[Flask] Received POST /command/{cmd}")
+    try:
+        ros2_node.publish(cmd)
+    except Exception as e:
+        print(f"[Flask] ERROR at publish: {e}")
     return {'status': 'OK'}
 
 def run_server():
